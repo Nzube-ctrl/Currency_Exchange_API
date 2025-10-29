@@ -3,7 +3,7 @@ import { Document } from 'mongoose';
 
 @Schema({ timestamps: { createdAt: false, updatedAt: false } })
 export class Country extends Document {
-  @Prop({ required: true })
+  @Prop({ required: true, unique: true })
   name: string;
 
   @Prop()
@@ -33,7 +33,22 @@ export class Country extends Document {
 
 export const CountrySchema = SchemaFactory.createForClass(Country);
 
-CountrySchema.index(
-  { name: 1 },
-  { unique: true, collation: { locale: 'en', strength: 2 } },
-);
+
+CountrySchema.pre('save', function (next) {
+  if (this.name) {
+    this.name = this.name.trim().toLowerCase();
+  }
+  next();
+});
+
+
+CountrySchema.pre('findOneAndUpdate', function (next) {
+  const update = this.getUpdate() as any;
+  if (update?.$set?.name) {
+    update.$set.name = update.$set.name.trim().toLowerCase();
+  }
+  next();
+});
+
+
+CountrySchema.index({ name: 1 }, { unique: true });

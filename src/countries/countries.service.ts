@@ -24,74 +24,72 @@ export class CountriesService {
     private countryModel: Model<Country>,
   ) {}
 
-  /**
-   * Fetch countries & exchange rates, update DB, generate summary image
-   */
   async refreshCountries(): Promise<{ message: string; total: number }> {
-    try {
-      const [countriesRes, exchangeRes] = await Promise.all([
-        axios.get(this.countriesUrl),
-        axios.get(this.exchangeUrl),
-      ]);
+  try {
+    const [countriesRes, exchangeRes] = await Promise.all([
+      axios.get(this.countriesUrl),
+      axios.get(this.exchangeUrl),
+    ]);
 
-      const countriesData = countriesRes.data;
-      const exchangeRates = exchangeRes.data.rates;
+    const countriesData = countriesRes.data;
+    const exchangeRates = exchangeRes.data.rates;
 
-      const ops = countriesData.map(async (country: any) => {
-        const name = country.name;
-        const capital = country.capital || null;
-        const region = country.region || null;
-        const population = country.population || 0;
-        const flag_url = country.flag || null;
-        const currency_code = country.currencies?.[0]?.code ?? null;
+    const ops = countriesData.map(async (country: any) => {
+      let name = country.name?.trim();
+      if (!name) return; // skip invalid entries
 
-        let exchange_rate = null;
-        let estimated_gdp = 0;
+      // normalize for consistency
+      name = name.replace(/\s*\(.*?\)\s*/g, '').trim(); // remove parentheses content (e.g., (Plurinational State of))
+      name = name.toLowerCase(); // make case-insensitive unique
 
-        if (currency_code && exchangeRates[currency_code]) {
-          exchange_rate = exchangeRates[currency_code];
-          const randomMultiplier = Math.floor(1000 + Math.random() * 1000);
-          estimated_gdp = (population * randomMultiplier) / exchange_rate;
-        }
+      const capital = country.capital || null;
+      const region = country.region || null;
+      const population = country.population || 0;
+      const flag_url = country.flag || null;
+      const currency_code = country.currencies?.[0]?.code ?? null;
 
-        await this.countryModel.updateOne(
-          { name: new RegExp(`^${name}$`, 'i') },
-          {
-            $set: {
-              name,
-              capital,
-              region,
-              population,
-              currency_code,
-              exchange_rate,
-              estimated_gdp,
-              flag_url,
-              last_refreshed_at: new Date(),
-            },
+      let exchange_rate = null;
+      let estimated_gdp = 0;
+
+      if (currency_code && exchangeRates[currency_code]) {
+        exchange_rate = exchangeRates[currency_code];
+        const randomMultiplier = Math.floor(1000 + Math.random() * 1000);
+        estimated_gdp = (population * randomMultiplier) / exchange_rate;
+      }
+
+      await this.countryModel.updateOne(
+        { name },
+        {
+          $set: {
+            name,
+            capital,
+            region,
+            population,
+            currency_code,
+            exchange_rate,
+            estimated_gdp,
+            flag_url,
+            last_refreshed_at: new Date(),
           },
-          { upsert: true },
-        );
-      });
-
-      await Promise.all(ops);
-
-      const total = await this.countryModel.countDocuments();
-      this.lastRefreshedAt = new Date().toISOString();
-
-      await this.generateSummaryImage(total);
-
-      return { message: 'Countries refreshed successfully', total };
-    } catch (err) {
-      throw new HttpException(
-        `Failed to refresh countries: ${err.message}`,
-        HttpStatus.BAD_REQUEST,
+        },
+        { upsert: true },
       );
-    }
-  }
+    });
 
-  /**
-   * Generate summary image using node-canvas
-   */
+    await Promise.all(ops);
+
+    const total = await this.countryModel.countDocuments();
+    this.lastRefreshedAt = new Date().toISOString();
+
+    return { message: 'Countries refreshed successfully', total };
+  } catch (err) {
+    throw new HttpException(
+      `Failed to refresh countries: ${err.message}`,
+      HttpStatus.BAD_REQUEST,
+    );
+  }
+}
+
   private async generateSummaryImage(totalCountries: number): Promise<void> {
     const topCountries = await this.countryModel
       .find({ estimated_gdp: { $ne: null } })
@@ -104,21 +102,17 @@ export class CountriesService {
     const canvas = createCanvas(width, height);
     const ctx = canvas.getContext('2d');
 
-    // Background
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, width, height);
 
-    // Header
     ctx.fillStyle = '#000000';
     ctx.font = 'bold 40px Arial';
     ctx.fillText('🌍 Country Summary', 40, 80);
 
-    // Summary text
     ctx.font = '28px Arial';
     ctx.fillText(`Total Countries: ${totalCountries}`, 40, 150);
     ctx.fillText(`Last Refresh: ${this.lastRefreshedAt}`, 40, 190);
 
-    // Top 5
     ctx.fillText('Top 5 by Estimated GDP:', 40, 250);
     let y = 300;
     topCountries.forEach((c, i) => {
@@ -138,9 +132,6 @@ export class CountriesService {
     await writeFile(outputPath, buffer);
   }
 
-  /**
-   * Return generated image or an error if missing
-   */
   async getSummaryImage(): Promise<Buffer | { error: string }> {
     const imagePath = join(process.cwd(), 'cache', 'summary.png');
     try {
@@ -151,7 +142,6 @@ export class CountriesService {
     }
   }
 
-  // 🔍 GET /countries/:name
   async findOne(name: string): Promise<Country> {
     const country = await this.countryModel
       .findOne({
